@@ -1,5 +1,3 @@
-# Run with:  podman compose up --build      (or: docker compose up --build)
-# First start downloads the model (~4.7 GB) into the `ollama` volume; later starts reuse it.
 services:
   ollama:
     image: docker.io/ollama/ollama:latest

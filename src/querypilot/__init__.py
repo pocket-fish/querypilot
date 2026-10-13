@@ -57,6 +57,6 @@ def main() -> None:
 
         uvicorn.run("querypilot.bootstrap:app", factory=True, host=args.host, port=args.port)
     elif args.command == "graph":
-        print(render_mermaid(Deps(llm=None, db_path=settings.data_db_path)))  # type: ignore[arg-type]
+        print(render_mermaid())
     else:
         _ask(args.question)

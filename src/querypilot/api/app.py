@@ -1,9 +1,10 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from querypilot.api.schemas import (
     HistoryResponse,
@@ -22,13 +23,13 @@ def _run_response(record: dict[str, Any]) -> RunResponse:
     return RunResponse(run_id=record["id"], **_pick(record, RunResponse, skip={"run_id"}))
 
 
-def _pick(record: dict[str, Any], model: type, skip: set[str]) -> dict[str, Any]:
+def _pick(record: dict[str, Any], model: type[BaseModel], skip: set[str]) -> dict[str, Any]:
     return {k: record[k] for k in model.model_fields if k not in skip and k in record}
 
 
 def create_app(service: AgentService | None = None) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         if app.state.service is None:
             from querypilot.bootstrap import build_default_service
 

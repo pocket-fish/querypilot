@@ -3,15 +3,18 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from querypilot import routers
+from querypilot.llm import FakeLLM
 from querypilot.nodes import Deps, build_nodes
 from querypilot.state import AgentState
 
 
 def build_graph(deps: Deps, checkpointer: BaseCheckpointSaver | None = None):
     nodes = build_nodes(deps)
-    graph = StateGraph(AgentState)
+    # ty does not yet accept any TypedDict as LangGraph's `TypedDictLike` state bound
+    # (reproducible with a two-line TypedDict); this is the documented LangGraph usage.
+    graph = StateGraph(AgentState)  # ty: ignore[invalid-argument-type]
     for name, fn in nodes.items():
-        graph.add_node(name, fn)
+        graph.add_node(name, fn)  # ty: ignore[invalid-argument-type]
 
     graph.add_edge(START, "analyze_request")
     graph.add_conditional_edges(
@@ -46,5 +49,6 @@ def build_graph(deps: Deps, checkpointer: BaseCheckpointSaver | None = None):
     return graph.compile(checkpointer=checkpointer or InMemorySaver())
 
 
-def render_mermaid(deps: Deps) -> str:
-    return build_graph(deps).get_graph().draw_mermaid()
+def render_mermaid() -> str:
+    """Mermaid diagram of the graph; no node runs, so the dependencies are placeholders."""
+    return build_graph(Deps(llm=FakeLLM([]), db_path="")).get_graph().draw_mermaid()

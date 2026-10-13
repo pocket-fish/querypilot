@@ -151,7 +151,7 @@ def _check_enum_literals(
     """A filter like status = 'completed' on a column whose real values are known."""
     issues = []
 
-    def check(column: exp.Expression, literals: list[exp.Expression]) -> None:
+    def check(column: exp.Expr, literals: list[exp.Expr]) -> None:
         if not isinstance(column, exp.Column):
             return
         table = _resolve(column, aliases, scope_tables)
@@ -182,7 +182,7 @@ def _check_limit(select: exp.Select) -> list[str]:
     return []
 
 
-def _check_null_comparison(tree: exp.Expression) -> list[str]:
+def _check_null_comparison(tree: exp.Expr) -> list[str]:
     for node in tree.find_all(exp.EQ, exp.NEQ):
         if isinstance(node.left, exp.Null) or isinstance(node.right, exp.Null):
             return ["Comparing with NULL using = or != is never true. Use IS NULL / IS NOT NULL."]

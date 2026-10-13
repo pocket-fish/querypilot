@@ -76,16 +76,19 @@ class FakeLLM:
     """Scripted LLM for tests: returns queued responses in order."""
 
     def __init__(self, responses: list[str | Exception] | Callable[[str], str]) -> None:
-        self._responses = responses
+        self._queue: list[str | Exception] = responses if isinstance(responses, list) else []
+        self._respond: Callable[[str], str] | None = (
+            None if isinstance(responses, list) else responses
+        )
         self.prompts: list[str] = []
 
     def invoke(self, prompt: str) -> str:
         self.prompts.append(prompt)
-        if callable(self._responses):
-            return self._responses(prompt)
-        if not self._responses:
+        if self._respond is not None:
+            return self._respond(prompt)
+        if not self._queue:
             raise LLMError("FakeLLM has no more scripted responses")
-        item = self._responses.pop(0)
+        item = self._queue.pop(0)
         if isinstance(item, Exception):
             raise item
         return item

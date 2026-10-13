@@ -5,7 +5,7 @@ import pytest
 from querypilot.graph import build_graph
 from querypilot.llm import FakeLLM
 from querypilot.nodes import Deps, build_nodes
-from querypilot.state import initial_state
+from querypilot.state import AgentState, initial_state
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def test_graph_without_a_question_ends_failed_and_reaches_finalize(db_path):
 def test_failed_state_is_routed_to_finalize_from_every_router():
     from querypilot import routers
 
-    failed = {**initial_state("q"), "status": "failed"}
+    failed: AgentState = {**initial_state("q"), "status": "failed"}
     for route in (
         routers.route_after_analyze,
         routers.route_after_selection,

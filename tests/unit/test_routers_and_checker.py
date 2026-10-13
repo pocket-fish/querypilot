@@ -93,7 +93,7 @@ def test_language_detection():
 def test_checker_names_the_closest_real_value_for_truncated_numbers():
     result = {"rows": [[27, 1149.58]], "row_count": 1}
     feedback = check_answer("Customer 27 has 1149", "LTV?", result)
-    assert "1149.58" in feedback
+    assert feedback and "1149.58" in feedback
 
 
 def test_checker_allows_numbers_from_question():

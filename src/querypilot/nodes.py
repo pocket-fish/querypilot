@@ -231,14 +231,15 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
     @_guarded("generate_answer")
     def generate_answer(state: AgentState) -> dict[str, Any]:
         question = state["user_question"]
-        if state.get("error") and not state.get("tool_result"):
+        error = state.get("error")
+        if error and not state.get("tool_result"):
             # No data to explain: never let the model improvise an answer here.
             prefix = (
                 "Не удалось построить надёжный запрос. Последняя проблема: "
                 if detect_language(question) == "Russian"
                 else "I could not build a reliable query. Last problem: "
             )
-            return {"final_answer": prefix + state["error"], "feedback": None}
+            return {"final_answer": prefix + error, "feedback": None}
         if state.get("tool_result"):
             context = f"SQL: {state.get('sql')}\nResult: {json.dumps(state['tool_result'])}"
             if state.get("error"):
