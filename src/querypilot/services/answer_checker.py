@@ -2,6 +2,8 @@ import math
 import re
 from typing import Any
 
+from querypilot.services.language import detect_language, has_cjk
+
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
 
@@ -19,6 +21,11 @@ def check_answer(
     """
     if not answer or not answer.strip():
         return "The answer is empty. Answer the question using the query result."
+    if has_cjk(answer) and not has_cjk(question):
+        return (
+            "The answer contains Chinese characters. "
+            f"Rewrite it entirely in {detect_language(question)}."
+        )
     if not tool_result or not tool_result.get("rows"):
         return None
 

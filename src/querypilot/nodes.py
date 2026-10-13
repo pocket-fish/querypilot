@@ -12,6 +12,7 @@ from langgraph.types import interrupt
 
 from querypilot.llm import LLM, LoggedLLM
 from querypilot.services.answer_checker import check_answer
+from querypilot.services.language import detect_language
 from querypilot.services.result_checker import find_null_columns
 from querypilot.state import AgentState
 from querypilot.tools.errors import ToolError
@@ -23,13 +24,15 @@ logger = logging.getLogger(__name__)
 
 NodeFn = Callable[[AgentState], dict[str, Any]]
 
-ANSWER_RULES = (
-    "You are a data analyst assistant. Answer the user's question in one or two complete "
-    "sentences, in the language of the question. Use only numbers that appear in the query "
-    "result, copied exactly and written without thousands separators; never merge or invent "
-    "numbers. For lists, put each item on its own line. For INSERT/UPDATE/DELETE, say how many "
-    "rows were affected (rows_affected).\n\n"
-)
+def _answer_rules(question: str) -> str:
+    return (
+        "You are a data analyst assistant. Answer the user's question in one or two complete "
+        f"sentences. Write the whole answer in {detect_language(question)} only, never in "
+        "Chinese. Use only numbers that appear in the query result, copied exactly and written "
+        "without thousands separators; never merge or invent numbers. For lists, put each item "
+        "on its own line. For INSERT/UPDATE/DELETE, say how many rows were affected "
+        "(rows_affected).\n\n"
+    )
 
 
 @dataclass
@@ -221,7 +224,8 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
                 "about customers and orders by writing SQL, and you can change data only after "
                 "the user approves. Do not state any numbers."
             )
-        answer = llm.invoke(ANSWER_RULES + f"Question: {state['user_question']}\n{context}").strip()
+        question = state["user_question"]
+        answer = llm.invoke(_answer_rules(question) + f"Question: {question}\n{context}").strip()
         return {"final_answer": answer, "feedback": None}
 
     @_guarded("validate_answer")
@@ -237,7 +241,7 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
         iterations = state.get("iterations", 0) + 1
         logger.info("improving answer, iteration=%s", iterations)
         improved = llm.invoke(
-            ANSWER_RULES + "Rewrite the previous answer to fix the problem. "
+            _answer_rules(state["user_question"]) + "Rewrite the previous answer to fix the problem. "
             "Reply with the corrected answer only, no preface.\n\n"
             f"Question: {state['user_question']}\n"
             f"Query result: {json.dumps(state.get('tool_result'))}\n"

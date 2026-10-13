@@ -63,6 +63,22 @@ def test_checker_flags_invented_numbers():
     assert feedback and "99" in feedback
 
 
+def test_checker_flags_chinese_in_a_russian_question_even_without_rows():
+    feedback = check_answer("AOV是277.03。", "посчитай AOV", None)
+    assert feedback and "Russian" in feedback
+
+
+def test_checker_allows_cjk_when_the_question_is_cjk():
+    assert check_answer("答案是30", "有多少客户？", RESULT) is None
+
+
+def test_language_detection():
+    from querypilot.services.language import detect_language
+
+    assert detect_language("посчитай AOV") == "Russian"
+    assert detect_language("How many customers?") == "English"
+
+
 def test_checker_names_the_closest_real_value_for_truncated_numbers():
     result = {"rows": [[27, 1149.58]], "row_count": 1}
     feedback = check_answer("Customer 27 has 1149", "LTV?", result)
