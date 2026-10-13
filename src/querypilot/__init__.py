@@ -6,7 +6,7 @@ from langgraph.types import Command
 from querypilot.config import get_settings
 from querypilot.demo_db import create_demo_db
 from querypilot.graph import build_graph, render_mermaid
-from querypilot.llm import OllamaLLM
+from querypilot.llm import create_llm
 from querypilot.logging_config import setup_logging
 from querypilot.nodes import Deps
 from querypilot.state import initial_state
@@ -14,9 +14,7 @@ from querypilot.state import initial_state
 
 def _deps() -> Deps:
     s = get_settings()
-    return Deps(
-        llm=OllamaLLM(s.ollama_model, s.ollama_base_url), db_path=s.data_db_path, max_rows=s.max_rows
-    )
+    return Deps(llm=create_llm(s), db_path=s.data_db_path, max_rows=s.max_rows)
 
 
 def _ask(question: str) -> None:

@@ -5,7 +5,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from querypilot.config import Settings, get_settings
 from querypilot.graph import build_graph
-from querypilot.llm import OllamaLLM
+from querypilot.llm import create_llm
 from querypilot.logging_config import setup_logging
 from querypilot.nodes import Deps
 from querypilot.repositories.run_repository import RunRepository
@@ -19,7 +19,7 @@ def build_default_service(settings: Settings | None = None) -> AgentService:
     Path(settings.checkpoint_db_path).parent.mkdir(parents=True, exist_ok=True)
     checkpointer = SqliteSaver(sqlite3.connect(settings.checkpoint_db_path, check_same_thread=False))
     deps = Deps(
-        llm=OllamaLLM(settings.ollama_model, settings.ollama_base_url),
+        llm=create_llm(settings),
         db_path=settings.data_db_path,
         max_rows=settings.max_rows,
     )

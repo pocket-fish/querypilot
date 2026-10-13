@@ -2,6 +2,10 @@ import logging
 from collections.abc import Callable
 from typing import Protocol
 
+import httpx
+
+from querypilot.config import Settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,6 +28,35 @@ class OllamaLLM:
             return str(self._chat.invoke(prompt).content)
         except Exception as exc:
             raise LLMError(f"Ollama call failed: {exc}") from exc
+
+
+class LlamaCppLLM:
+    """llama.cpp `llama-server` via its OpenAI-compatible endpoint (local, free)."""
+
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 120.0,
+        client: httpx.Client | None = None,
+    ) -> None:
+        self._client = client or httpx.Client(base_url=base_url, timeout=timeout)
+
+    def invoke(self, prompt: str) -> str:
+        try:
+            response = self._client.post(
+                "/v1/chat/completions",
+                json={"messages": [{"role": "user", "content": prompt}], "temperature": 0},
+            )
+            response.raise_for_status()
+            return str(response.json()["choices"][0]["message"]["content"])
+        except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+            raise LLMError(f"llama.cpp call failed: {exc}") from exc
+
+
+def create_llm(settings: Settings) -> LLM:
+    if settings.llm_backend == "llamacpp":
+        return LlamaCppLLM(settings.llamacpp_base_url, settings.llm_timeout)
+    return OllamaLLM(settings.ollama_model, settings.ollama_base_url)
 
 
 class FakeLLM:

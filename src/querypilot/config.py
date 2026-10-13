@@ -1,9 +1,14 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="QUERYPILOT_", env_file=".env", extra="ignore")
 
+    llm_backend: Literal["ollama", "llamacpp"] = "ollama"
+    llamacpp_base_url: str = "http://localhost:8080"
+    llm_timeout: float = 120.0
     ollama_model: str = "qwen2.5:7b"
     ollama_base_url: str = "http://localhost:11434"
     max_iterations: int = 3
