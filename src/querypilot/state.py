@@ -4,6 +4,10 @@ from typing import Annotated, Any, Literal, TypedDict
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
+class InvalidStateError(Exception):
+    """The graph reached a node with a state that node cannot work with."""
+
+
 Status = Literal["running", "completed", "rejected", "failed", "max_iterations"]
 
 

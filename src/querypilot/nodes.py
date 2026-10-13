@@ -14,7 +14,7 @@ from querypilot.llm import LLM, LoggedLLM
 from querypilot.services.answer_checker import check_answer
 from querypilot.services.language import detect_language
 from querypilot.services.result_checker import find_null_columns
-from querypilot.state import AgentState
+from querypilot.state import AgentState, InvalidStateError, ToolCall
 from querypilot.tools.errors import ToolError
 from querypilot.tools.query_validator import validate_sql
 from querypilot.tools.schema_inspector import inspect_schema
@@ -68,6 +68,18 @@ def _guarded(name: str) -> Callable[[NodeFn], NodeFn]:
         return wrapper
 
     return decorator
+
+
+KNOWN_TOOLS = ("schema_inspector", "sql_executor")
+
+
+def _require_tool_call(state: AgentState, node: str) -> ToolCall:
+    call = state.get("tool_call")
+    if call is None:
+        raise InvalidStateError(f"{node} was reached without a tool_call")
+    if call["name"] not in KNOWN_TOOLS:
+        raise InvalidStateError(f"{node}: unknown tool '{call['name']}'")
+    return call
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -149,8 +161,7 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
 
     @_guarded("human_approval")
     def human_approval(state: AgentState) -> dict[str, Any]:
-        call = state["tool_call"]
-        assert call is not None
+        call = _require_tool_call(state, "human_approval")
         decision = interrupt(
             {
                 "type": "approval_required",
@@ -171,8 +182,7 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
 
     @_guarded("tool_execution")
     def tool_execution(state: AgentState) -> dict[str, Any]:
-        call = state["tool_call"]
-        assert call is not None
+        call = _require_tool_call(state, "tool_execution")
         name = call["name"]
         logger.info("executing tool=%s", name)
         try:
