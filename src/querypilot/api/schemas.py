@@ -19,6 +19,7 @@ class RunResponse(BaseModel):
     status: str
     final_answer: str | None = None
     pending_approval: PendingApproval | None = None
+    approval_expires_at: str | None = None
     error: str | None = None
 
 

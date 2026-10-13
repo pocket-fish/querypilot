@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     history_db_path: str = "data/history.db"
     checkpoint_db_path: str = "data/checkpoints.db"
     max_rows: int = 100
+    approval_timeout_seconds: float = 900  # 0 disables the timeout
     log_level: str = "INFO"
 
 

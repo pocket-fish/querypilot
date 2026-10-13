@@ -1,5 +1,7 @@
 import logging
 import uuid
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langgraph.types import Command
@@ -10,6 +12,7 @@ from querypilot.state import initial_state
 logger = logging.getLogger(__name__)
 
 WAITING = "waiting_for_approval"
+EXPIRED = "expired"
 
 
 class RunNotFoundError(Exception):
@@ -21,12 +24,25 @@ class InvalidRunStateError(Exception):
 
 
 class AgentService:
-    """Runs the graph and mirrors every run into the history repository."""
+    """Runs the graph and mirrors every run into the history repository.
 
-    def __init__(self, graph: Any, repository: RunRepository, max_iterations: int = 3) -> None:
+    A run waiting for approval expires after `approval_timeout` seconds (None or 0
+    disables this). Expiry is lazy: it is applied the next time the run is read.
+    """
+
+    def __init__(
+        self,
+        graph: Any,
+        repository: RunRepository,
+        max_iterations: int = 3,
+        approval_timeout: float | None = None,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
         self._graph = graph
         self._repo = repository
         self._max_iterations = max_iterations
+        self._approval_timeout = approval_timeout if approval_timeout else None
+        self._clock = clock
 
     def run(self, question: str) -> dict[str, Any]:
         run_id = uuid.uuid4().hex
@@ -44,7 +60,23 @@ class AgentService:
         record = self._repo.get(run_id)
         if record is None:
             raise RunNotFoundError(run_id)
-        return record
+        return self._apply_approval_deadline(record)
+
+    def _apply_approval_deadline(self, record: dict[str, Any]) -> dict[str, Any]:
+        if record["status"] != WAITING or self._approval_timeout is None:
+            return record
+        deadline = datetime.fromisoformat(record["updated_at"]) + timedelta(
+            seconds=self._approval_timeout
+        )
+        if self._clock() < deadline:
+            return {**record, "approval_expires_at": deadline.isoformat(timespec="seconds")}
+        if self._repo.claim(record["id"], WAITING, EXPIRED):
+            logger.warning("run=%s approval timed out, nothing was executed", record["id"])
+            self._repo.update(
+                record["id"],
+                final_answer="Approval timed out. The action was not executed and nothing was changed.",
+            )
+        return self._repo.get(record["id"]) or record
 
     def _decide(self, run_id: str, decision: str) -> dict[str, Any]:
         record = self.get(run_id)

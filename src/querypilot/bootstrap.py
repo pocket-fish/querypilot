@@ -27,6 +27,7 @@ def build_default_service(settings: Settings | None = None) -> AgentService:
         graph=build_graph(deps, checkpointer),
         repository=RunRepository(settings.history_db_path),
         max_iterations=settings.max_iterations,
+        approval_timeout=settings.approval_timeout_seconds,
     )
 
 

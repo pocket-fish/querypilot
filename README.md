@@ -20,7 +20,7 @@ AI-агент «SQL-аналитик» на **LangGraph**. Пользовате�
 
 Python 3.12, LangGraph, LangChain (`langchain-ollama`), Ollama / llama.cpp, FastAPI, Pydantic (+ pydantic-settings), sqlglot, SQLite, httpx, pytest, logging. Менеджер пакетов — [uv](https://docs.astral.sh/uv/).
 
-> Не реализовано: Docker/Compose, PostgreSQL (история и чекпоинты пока в SQLite), таймаут на подтверждение.
+> Не реализовано: Docker/Compose, PostgreSQL (история и чекпоинты пока в SQLite).
 
 ## Установка
 
@@ -80,6 +80,7 @@ CLI при запросе на изменение данных сам спрос
 | `LLM_TIMEOUT` | `120` | таймаут запроса к llama.cpp, сек |
 | `MAX_ITERATIONS` | `3` | лимит итераций циклов |
 | `MAX_ROWS` | `100` | максимум строк результата |
+| `APPROVAL_TIMEOUT_SECONDS` | `900` | сколько запуск ждёт подтверждения; `0` — ждать бесконечно |
 | `DATA_DB_PATH` | `data/demo.db` | БД, к которой агент пишет запросы |
 | `HISTORY_DB_PATH` | `data/history.db` | история запусков |
 | `CHECKPOINT_DB_PATH` | `data/checkpoints.db` | чекпоинты LangGraph |
@@ -105,7 +106,9 @@ curl -X POST localhost:8000/agent/run -H "content-type: application/json" \
 curl -X POST localhost:8000/agent/approve/<run_id>
 ```
 
-Статусы: `running`, `waiting_for_approval`, `completed`, `rejected`, `failed`, `max_iterations`. Коды ошибок: `404` — неизвестный `id`, `409` — решение по запуску, который не ждёт подтверждения, `422` — пустой вопрос. Сбой LLM или любого node не приводит к HTTP 500: запуск завершается со статусом `failed` и описанием ошибки.
+Статусы: `running`, `waiting_for_approval`, `completed`, `rejected`, `expired`, `failed`, `max_iterations`. Коды ошибок: `404` — неизвестный `id`, `409` — решение по запуску, который не ждёт подтверждения (в том числе уже истёк), `422` — пустой вопрос.
+
+**Таймаут подтверждения.** Пока запуск ждёт решения, в ответах `run` и `status` есть `approval_expires_at`. Если решения нет до этого момента, запуск получает статус `expired` и ничего не выполняет; `approve` и `reject` после этого возвращают `409`. Истечение применяется «лениво»: при ближайшем обращении к запуску через API. Сбой LLM или любого node не приводит к HTTP 500: запуск завершается со статусом `failed` и описанием ошибки.
 
 ## State
 
@@ -225,6 +228,7 @@ uv run pytest
 - самокоррекция SQL, отклонение опасного SQL валидатором, «тихо неверный» результат;
 - цикл улучшения ответа и остановка по лимиту итераций (для обоих циклов);
 - пауза на подтверждение, approve, reject, повторное решение (`409`);
+- истечение подтверждения по таймауту ([test_approval_timeout.py](tests/system/test_approval_timeout.py)), в том числе `approve` после истечения;
 - ошибка инструмента и ошибка LLM → контролируемый статус `failed`;
 - пауза переживает «перезапуск сервера» (новый граф и сервис на тех же SQLite-файлах).
 
