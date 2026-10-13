@@ -45,6 +45,13 @@ def test_inspect_schema_lists_tables_and_counts(db_path):
     assert "30 rows" in schema and "300 rows" in schema
 
 
+def test_inspect_schema_shows_values_of_enum_like_columns(db_path):
+    schema = inspect_schema(db_path)
+    assert "-- orders.status values: 'cancelled', 'paid', 'pending'" in schema
+    assert "-- customers.country values:" in schema
+    assert "customers.name values" not in schema
+
+
 def test_inspect_schema_missing_db(tmp_path):
     with pytest.raises(ToolError):
         inspect_schema(str(tmp_path / "nope.db"))

@@ -17,7 +17,8 @@ from querypilot.services.result_checker import find_null_columns
 from querypilot.state import AgentState, InvalidStateError, ToolCall
 from querypilot.tools.errors import ToolError
 from querypilot.tools.query_validator import validate_sql
-from querypilot.tools.schema_inspector import inspect_schema
+from querypilot.tools.schema_inspector import inspect_schema, read_schema_info
+from querypilot.tools.sql_linter import lint_sql
 from querypilot.tools.sql_executor import execute_sql
 
 logger = logging.getLogger(__name__)
@@ -135,17 +136,24 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
             "Rules: use only tables and columns from the schema; prefer the simplest query "
             "that works and avoid date functions unless the question needs them. If a business "
             "metric is not defined, use a simple standard definition (for example LTV = total "
-            "amount of paid orders per customer). Revenue means orders with status 'paid'.\n\n"
+            "amount of paid orders per customer). Add a filter on orders.status only for "
+            "money questions (revenue, sales, LTV, average order value) or when the question "
+            "names a status; counting orders counts all statuses.\n\n"
             f"Schema:\n{state['schema_text']}\n\nQuestion: {state['user_question']}{retry_hint}"
         )
         sql = _clean_sql(reply)
         verdict = validate_sql(sql)
-        if not verdict.ok:
-            logger.warning("sql rejected by validator: %s", verdict.error)
+        problem = verdict.error
+        if verdict.ok and verdict.read_only:
+            issues = lint_sql(sql, read_schema_info(deps.db_path))
+            if issues:
+                problem = "SQL review found problems: " + " ".join(issues)
+        if problem:
+            logger.warning("sql rejected: %s", problem)
             return {
                 "sql": sql,
                 "tool_call": None,
-                "error": verdict.error,
+                "error": problem,
                 "iterations": state.get("iterations", 0) + 1,
             }
         logger.info("tool selected: sql_executor read_only=%s", verdict.read_only)
@@ -222,9 +230,16 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
 
     @_guarded("generate_answer")
     def generate_answer(state: AgentState) -> dict[str, Any]:
+        question = state["user_question"]
         if state.get("error") and not state.get("tool_result"):
-            context = f"The data query failed: {state['error']}. Explain this honestly."
-        elif state.get("tool_result"):
+            # No data to explain: never let the model improvise an answer here.
+            prefix = (
+                "Не удалось построить надёжный запрос. Последняя проблема: "
+                if detect_language(question) == "Russian"
+                else "I could not build a reliable query. Last problem: "
+            )
+            return {"final_answer": prefix + state["error"], "feedback": None}
+        if state.get("tool_result"):
             context = f"SQL: {state.get('sql')}\nResult: {json.dumps(state['tool_result'])}"
             if state.get("error"):
                 context += f"\nWarning: {state['error']} Mention that the result may be unreliable."
@@ -234,7 +249,6 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
                 "about customers and orders by writing SQL, and you can change data only after "
                 "the user approves. Do not state any numbers."
             )
-        question = state["user_question"]
         answer = llm.invoke(_answer_rules(question) + f"Question: {question}\n{context}").strip()
         return {"final_answer": answer, "feedback": None}
 

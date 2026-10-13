@@ -78,6 +78,58 @@ def test_dangerous_sql_is_rejected_by_validator_and_retried(make_harness):
     assert count_rows(h.db_path, "orders") == 300
 
 
+def test_join_on_wrong_key_is_caught_before_execution_and_fixed(make_harness):
+    wrong = (
+        "SELECT c.name, SUM(o.amount) FROM customers c JOIN orders o ON c.id = o.id "
+        "WHERE o.status = 'paid' GROUP BY c.id"
+    )
+    right = wrong.replace("o.id", "o.customer_id")
+    top = right + " ORDER BY SUM(o.amount) DESC LIMIT 1"
+    h = make_harness([NEEDS_DATA, wrong, top, "Customer 02 spent 2955.05."])
+    result = h.run("Who spent the most?")
+
+    assert result["status"] == "completed"
+    assert result["iterations"] == 1
+    assert result["sql"] == top
+    # the wrong query never ran: only the schema tool and the corrected query did
+    assert result["tools_used"] == ["schema_inspector", "sql_executor"]
+    retry_prompt = h.llm.prompts[2]
+    assert "does not follow the foreign key" in retry_prompt
+    assert "orders.customer_id = customers.id" in retry_prompt
+
+
+def test_invented_filter_value_is_caught_and_the_model_sees_valid_values(make_harness):
+    invented = "SELECT SUM(amount) FROM orders WHERE status = 'completed'"
+    fixed = "SELECT SUM(amount) FROM orders WHERE status = 'paid'"
+    h = make_harness([NEEDS_DATA, invented, fixed, "Paid revenue is 47926.08."])
+    result = h.run("What is the revenue?")
+
+    assert result["status"] == "completed"
+    assert result["sql"] == fixed
+    assert "orders.status values: 'cancelled', 'paid', 'pending'" in h.llm.prompts[1]  # in schema
+    assert "valid values: cancelled, paid, pending" in h.llm.prompts[2]  # in the retry hint
+
+
+def test_failure_answer_is_deterministic_and_localized_not_improvised(make_harness):
+    bad = "SELECT * FROM customers, orders"
+    h = make_harness([NEEDS_DATA, bad, bad], max_iterations=2)
+    result = h.run("Сколько клиентов?")
+
+    assert result["status"] == "max_iterations"
+    assert result["final_answer"].startswith("Не удалось построить надёжный запрос")
+    assert len(h.llm.prompts) == 3  # analyze + two SQL attempts, no LLM call for the answer
+
+
+def test_cartesian_product_never_reaches_the_database(make_harness):
+    bad = "SELECT COUNT(*) FROM customers, orders"
+    h = make_harness([NEEDS_DATA, bad, bad, "I could not build a reliable query."], max_iterations=2)
+    result = h.run("How many customers?")
+
+    assert result["status"] == "max_iterations"
+    assert result["tools_used"] == ["schema_inspector"]
+    assert result["tool_result"] is None
+
+
 def test_hallucinated_number_triggers_improve_cycle(make_harness):
     h = make_harness(
         [NEEDS_DATA, COUNT_SQL, "There are 99 customers.", "There are 30 customers."]
