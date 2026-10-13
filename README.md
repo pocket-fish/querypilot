@@ -1,266 +1,96 @@
 # QueryPilot
 
-AI-агент «SQL-аналитик» на **LangGraph**. Пользователь задаёт вопрос на естественном языке («Какие 3 страны с наибольшим числом клиентов?»), агент смотрит схему БД, пишет SQL, выполняет его, формирует ответ и проверяет, что числа в ответе действительно взяты из результата запроса. Запросы, которые меняют данные (`INSERT` / `UPDATE` / `DELETE`), приостанавливают workflow и ждут подтверждения человека.
-
-Учебный проект: главная цель — освоить построение AI-workflow в виде графа состояний (StateGraph, conditional edges, циклы, human-in-the-loop, тестирование агентов без реальной LLM).
+AI-агент «SQL-аналитик» на **LangGraph**: вопрос на естественном языке → схема БД → SQL → выполнение → проверенный ответ. Изменение данных ставит граф на паузу до подтверждения человека. Учебный проект: StateGraph, conditional edges, циклы, human-in-the-loop, тесты без реальной LLM.
 
 ## Возможности
 
-- **Граф состояний** с условными переходами и двумя циклами:
-  - *самокоррекция SQL*: запрос упал, отклонён валидатором или вернул «тихо неверный» результат (колонка из одних `NULL`) → ошибка возвращается модели, она переписывает запрос;
-  - *улучшение ответа*: в ответе есть число, которого нет в результате запроса (или иероглифы вместо русского) → `improve_answer` переписывает ответ.
-- **Смысловая проверка SQL до выполнения** ([sql_linter.py](src/querypilot/tools/sql_linter.py)): SQLite исполняет многие неверные запросы и возвращает правдоподобные строки, поэтому структура запроса проверяется по AST и схеме. Замечания возвращаются модели, как ошибки:
-  - `JOIN` не по внешнему ключу (`c.id = o.id` вместо `o.customer_id`) и декартово произведение (`JOIN` без `ON`, `FROM a, b`);
-  - колонка рядом с агрегатом, которой нет в `GROUP BY` (SQLite вернул бы значение произвольной строки); колонки, зависящие от первичного ключа в `GROUP BY`, и алиасы в `GROUP BY` допускаются;
-  - выдуманное значение фильтра: `status = 'completed'`, если в данных есть только `paid`/`pending`/`cancelled` (значения колонок с малым числом вариантов агент показывает модели в схеме и сверяет по ним фильтры);
-  - `= NULL` вместо `IS NULL`, `LIMIT` без `ORDER BY`.
-- **Лимит итераций** (`MAX_ITERATIONS`, по умолчанию 3): после него workflow корректно завершается со статусом `max_iterations`.
-- **Human-in-the-loop**: изменение данных ставит граф на паузу (`waiting_for_approval`) через `interrupt()`; пользователь подтверждает или отклоняет запрос. Пауза хранится в SQLite-чекпоинтах и переживает перезапуск сервера.
-- **Безопасность SQL**: статическая проверка через `sqlglot` (один statement; `DROP`/`ALTER`/`PRAGMA` и т. п. запрещены), чтение идёт через read-only соединение, запись разрешена только после подтверждения.
-- **История выполнения** в SQLite: вопрос, последовательность nodes, tools, SQL, результат, итерации, ответ, время.
-- **HTTP API** на FastAPI и CLI.
-- **Два локальных LLM-backend'а**: Ollama (по умолчанию) и llama.cpp (`llama-server`). Платные API не используются.
+- **Два цикла** с лимитом `MAX_ITERATIONS=3` (затем статус `max_iterations`): самокоррекция SQL и улучшение ответа.
+- **Human-in-the-loop**: `INSERT/UPDATE/DELETE` → `waiting_for_approval` (`interrupt()`). Пауза хранится в SQLite и переживает перезапуск; без решения за `APPROVAL_TIMEOUT_SECONDS` (900) запуск получает `expired`.
+- **Проверка SQL до выполнения**: `sqlglot` (один statement, без DDL), read-only соединение и [линтер](src/querypilot/tools/sql_linter.py): JOIN не по внешнему ключу, декартово произведение, колонка вне `GROUP BY`, выдуманные значения фильтров, `= NULL`, `LIMIT` без `ORDER BY`.
+- **Проверка ответа**: числа совпадают с результатом запроса, нет иероглифов, язык ответа = язык вопроса; колонка из одних `NULL` → повтор запроса.
+- Сбой LLM, инструмента или node → контролируемый `failed`. История запусков в SQLite, FastAPI и CLI, backend'ы Ollama и llama.cpp (платных API нет).
 
 ## Технологии
 
-Python 3.12, LangGraph, LangChain (`langchain-ollama`), Ollama / llama.cpp, FastAPI, Pydantic (+ pydantic-settings), sqlglot, SQLite, httpx, pytest, logging. Менеджер пакетов — [uv](https://docs.astral.sh/uv/).
+Python 3.12, LangGraph, LangChain, Ollama / llama.cpp, FastAPI, Pydantic, sqlglot, SQLite, pytest, logging, uv, Docker Compose.
 
-> Не реализовано: PostgreSQL (история и чекпоинты пока в SQLite).
-
-## Установка
+## Установка и запуск
 
 ```bash
-git clone <repo> && cd querypilot
-uv sync
-uv run querypilot seed        # создать демо-БД data/demo.db (клиенты и заказы)
+uv sync && uv run querypilot seed        # демо-БД data/demo.db (клиенты, заказы)
 ```
 
-### LLM: вариант 1 — Ollama (по умолчанию)
-
-1. Установить Ollama: <https://ollama.com/download> (Windows: `winget install Ollama.Ollama`).
-2. Скачать модель и проверить её:
+**Ollama** (по умолчанию): установить с <https://ollama.com/download> (`winget install Ollama.Ollama`), затем `ollama pull qwen2.5:7b`. Модель — **Qwen2.5-7B-Instruct**, 4 бит, около 4,7 ГБ.
+**llama.cpp**: `llama-server -hf Qwen/Qwen2.5-7B-Instruct-GGUF:Q4_K_M -ngl 99 -c 8192 --port 8080` и `QUERYPILOT_LLM_BACKEND=llamacpp` в `.env`.
 
 ```bash
-ollama pull qwen2.5:7b
-ollama run qwen2.5:7b "Скажи привет одним словом"
+uv run querypilot ask "Сколько у нас клиентов?"   # CLI, сам спросит подтверждение
+uv run querypilot serve                            # API: http://127.0.0.1:8000/docs
+uv run querypilot graph                            # схема графа в Mermaid
+docker compose up --build                          # Ollama + модель + API
 ```
 
-Используемая модель — **Qwen2.5-7B-Instruct** (в Ollama тег `qwen2.5:7b`, 4-битная квантизация, около 4,7 ГБ; помещается в 6 ГБ видеопамяти). Ollama слушает `http://localhost:11434`.
-
-### LLM: вариант 2 — llama.cpp
-
-Нужен `llama-server` ([релизы llama.cpp](https://github.com/ggml-org/llama.cpp/releases), Windows: `winget install ggml.llamacpp`) и GGUF-модель:
-
-```bash
-llama-server -hf Qwen/Qwen2.5-7B-Instruct-GGUF:Q4_K_M -ngl 99 -c 8192 --port 8080
-```
-
-Переключение backend'а — в `.env` в корне проекта:
-
-```
-QUERYPILOT_LLM_BACKEND=llamacpp
-QUERYPILOT_LLAMACPP_BASE_URL=http://localhost:8080
-```
-
-## Запуск
-
-```bash
-uv run querypilot ask "Сколько у нас клиентов?"   # CLI: вопрос → ответ
-uv run querypilot serve                            # HTTP API на http://localhost:8000 (Swagger: /docs)
-uv run querypilot graph                            # схема графа в формате Mermaid
-uv run querypilot seed                             # пересоздать демо-БД
-```
-
-CLI при запросе на изменение данных сам спросит `Approve? [y/N]`.
-
-### Docker / Podman Compose
-
-Один запуск поднимает Ollama, скачивает модель и стартует API:
-
-```bash
-podman compose up --build      # или: docker compose up --build
-```
-
-- Сервисы: `ollama`, одноразовый `model-pull` (скачивает `qwen2.5:7b`, около 4,7 ГБ, в том `ollama`) и `api` на `http://127.0.0.1:8000`. Другая модель: `QUERYPILOT_OLLAMA_MODEL=qwen2.5:3b podman compose up`.
-- Демо-БД создаётся при первом старте; данные и история лежат в томе `data`.
-- GPU NVIDIA (необязательно): `podman compose -f compose.yaml -f compose.gpu.yaml up --build`. Нужен NVIDIA Container Toolkit с CDI-описанием (`nvidia-ctk cdi generate`); этот вариант не проверялся. Без GPU модель 7B работает на CPU заметно медленнее.
-- Если вместо Ollama в контейнере нужен `llama-server` на хосте, задайте в `compose.yaml` для `api` `QUERYPILOT_LLM_BACKEND=llamacpp` и `QUERYPILOT_LLAMACPP_BASE_URL=http://host.docker.internal:8080`.
-- На Windows обращайтесь к API по `127.0.0.1`, а не `localhost` (он может указывать на IPv6).
-
-Проверено: `podman compose config` и сборка образа `api` с запуском контейнера. Полный `compose up` (с образом Ollama и скачиванием модели) не запускался.
-
-### Настройки
-
-Переменные окружения с префиксом `QUERYPILOT_` или файл `.env`:
+Compose поднимает `ollama`, `model-pull` (качает модель) и `api`; GPU: `-f compose.gpu.yaml` (не проверялось). Настройки: переменные `QUERYPILOT_*` или `.env`:
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
 | `LLM_BACKEND` | `ollama` | `ollama` или `llamacpp` |
-| `OLLAMA_MODEL` / `OLLAMA_BASE_URL` | `qwen2.5:7b` / `http://localhost:11434` | настройки Ollama |
-| `LLAMACPP_BASE_URL` | `http://localhost:8080` | адрес `llama-server` |
-| `LLM_TIMEOUT` | `120` | таймаут запроса к llama.cpp, сек |
-| `MAX_ITERATIONS` | `3` | лимит итераций циклов |
-| `MAX_ROWS` | `100` | максимум строк результата |
-| `APPROVAL_TIMEOUT_SECONDS` | `900` | сколько запуск ждёт подтверждения; `0` — ждать бесконечно |
-| `DATA_DB_PATH` | `data/demo.db` | БД, к которой агент пишет запросы |
-| `HISTORY_DB_PATH` | `data/history.db` | история запусков |
-| `CHECKPOINT_DB_PATH` | `data/checkpoints.db` | чекпоинты LangGraph |
-| `LOG_LEVEL` | `INFO` | `DEBUG` дополнительно логирует промпты и ответы LLM |
+| `OLLAMA_MODEL`, `OLLAMA_BASE_URL` | `qwen2.5:7b`, `:11434` | Ollama |
+| `LLAMACPP_BASE_URL` | `http://localhost:8080` | `llama-server` |
+| `MAX_ITERATIONS`, `MAX_ROWS` | `3`, `100` | лимиты |
+| `APPROVAL_TIMEOUT_SECONDS` | `900` | `0` — ждать бесконечно |
+| `DATA_DB_PATH`, `HISTORY_DB_PATH`, `CHECKPOINT_DB_PATH` | `data/*.db` | БД данных, история, чекпоинты |
+| `LOG_LEVEL` | `INFO` | `DEBUG` логирует промпты LLM |
 
 ## API
 
-| Метод | Путь | Описание |
-|---|---|---|
-| `POST` | `/agent/run` | запустить агента: `{"question": "..."}` |
-| `GET` | `/agent/status/{id}` | статус, текущий шаг, число итераций |
-| `POST` | `/agent/approve/{id}` | подтвердить приостановленное действие |
-| `POST` | `/agent/reject/{id}` | отклонить действие |
-| `GET` | `/agent/history/{id}` | полная история запуска |
-
-Запрос синхронный: `POST /agent/run` возвращает ответ, когда агент закончил или встал на подтверждение.
-
-```bash
-curl -X POST localhost:8000/agent/run -H "content-type: application/json" \
-     -d '{"question": "Удали все отменённые заказы"}'
-# {"run_id": "…", "status": "waiting_for_approval", "pending_approval": {"sql": "DELETE FROM orders WHERE status = 'cancelled'", …}}
-
-curl -X POST localhost:8000/agent/approve/<run_id>
-```
-
-Статусы: `running`, `waiting_for_approval`, `completed`, `rejected`, `expired`, `failed`, `max_iterations`. Коды ошибок: `404` — неизвестный `id`, `409` — решение по запуску, который не ждёт подтверждения (в том числе уже истёк), `422` — пустой вопрос.
-
-**Таймаут подтверждения.** Пока запуск ждёт решения, в ответах `run` и `status` есть `approval_expires_at`. Если решения нет до этого момента, запуск получает статус `expired` и ничего не выполняет; `approve` и `reject` после этого возвращают `409`. Истечение применяется «лениво»: при ближайшем обращении к запуску через API. Сбой LLM или любого node не приводит к HTTP 500: запуск завершается со статусом `failed` и описанием ошибки.
-
-## State
-
-Определён в [state.py](src/querypilot/state.py) (`AgentState`, `TypedDict`).
-
-| Поле | Назначение |
+| Метод и путь | Описание |
 |---|---|
-| `messages` | история сообщений (reducer `add_messages`) |
-| `user_question` | исходный вопрос |
-| `current_step` | имя последнего выполненного node |
-| `tool_result` | результат последнего инструмента (`columns`, `rows`, `row_count`, …) |
-| `final_answer` | текущий / итоговый ответ |
-| `iterations` | счётчик итераций циклов |
-| `max_iterations` | лимит итераций (хранится в state, чтобы роутеры оставались чистыми функциями) |
-| `needs_data` | нужен ли доступ к БД |
-| `schema_text`, `sql` | схема БД и последний SQL |
-| `tool_call` | выбранный инструмент: `name`, `args`, `requires_approval` |
-| `error` | последняя ошибка или предупреждение |
-| `approval` | решение человека: `approved` / `rejected` |
-| `feedback` | замечание к ответу от проверки |
-| `status` | `running` → `completed` / `rejected` / `failed` / `max_iterations` |
-| `visited_nodes`, `tools_used` | журнал выполнения (reducer `operator.add`) |
+| `POST /agent/run` | `{"question": "..."}`, ответ приходит синхронно |
+| `GET /agent/status/{id}` | статус, шаг, итерации, `approval_expires_at` |
+| `POST /agent/approve/{id}`, `/reject/{id}` | решение по приостановленному запросу |
+| `GET /agent/history/{id}` | nodes, tools, SQL, результат, итерации, ответ, время |
 
-## Граф и nodes
+Статусы: `running`, `waiting_for_approval`, `completed`, `rejected`, `expired`, `failed`, `max_iterations`. Коды: `404` — нет запуска, `409` — запуск не ждёт решения (в том числе истёк), `422` — пустой вопрос.
+
+## State и nodes
+
+`AgentState` ([state.py](src/querypilot/state.py)): `messages`, `user_question`, `current_step`, `tool_result`, `final_answer`, `iterations` (по ТЗ) и расширения: `max_iterations`, `needs_data`, `schema_text`, `sql`, `tool_call`, `error`, `approval`, `feedback`, `status`, `visited_nodes`, `tools_used`.
 
 | Node | Что делает |
 |---|---|
-| `analyze_request` | LLM определяет, нужен ли доступ к данным |
-| `tool_selection` | выбирает инструмент: сначала `schema_inspector`, затем LLM пишет SQL; `validate_sql` решает, нужно ли подтверждение |
-| `human_approval` | `interrupt()` и ожидание `approve` / `reject` |
-| `tool_execution` | выполняет инструмент, ловит `ToolError`, проверяет результат на колонки из одних `NULL` |
-| `generate_answer` | формирует ответ по результату запроса |
-| `validate_answer` | детерминированная проверка: числа есть в результате, нет китайских иероглифов, ответ не пустой |
-| `improve_answer` | переписывает ответ с учётом замечания (цикл с `validate_answer`) |
-| `finalize` | итоговый статус и ответ |
+| `analyze_request` | LLM решает, нужен ли доступ к БД |
+| `tool_selection` | `schema_inspector`, затем LLM пишет SQL; валидатор и линтер проверяют его |
+| `human_approval` | `interrupt()`, ждёт `approve` / `reject` |
+| `tool_execution` | выполняет инструмент (`ToolError` → повтор), ловит результат из одних `NULL` |
+| `generate_answer` | ответ по результату запроса |
+| `validate_answer` ⇄ `improve_answer` | детерминированная проверка ответа и его переписывание |
+| `finalize` | итоговые статус и ответ |
 
-Любое необработанное исключение в node превращается в `status=failed` и ведёт в `finalize`, а не роняет граф. Условные переходы — чистые функции в [routers.py](src/querypilot/routers.py).
+Условные переходы — чистые функции в [routers.py](src/querypilot/routers.py). Пунктир — условные рёбра, циклы — `tool_selection ⇄ tool_execution` и `validate_answer ⇄ improve_answer`; любая ошибка ведёт в `finalize`. Полная схема: `uv run querypilot graph` или [docs/graph.md](docs/graph.md).
 
 ```mermaid
 graph TD;
-	__start__([<p>__start__</p>]):::first
-	analyze_request(analyze_request)
-	tool_selection(tool_selection)
-	human_approval(human_approval)
-	tool_execution(tool_execution)
-	generate_answer(generate_answer)
-	validate_answer(validate_answer)
-	improve_answer(improve_answer)
-	finalize(finalize)
-	__end__([<p>__end__</p>]):::last
-	__start__ --> analyze_request;
-	analyze_request -.-> finalize;
-	analyze_request -.-> generate_answer;
-	analyze_request -.-> tool_selection;
-	generate_answer -.-> finalize;
-	generate_answer -.-> validate_answer;
-	human_approval -.-> finalize;
-	human_approval -.-> tool_execution;
-	improve_answer --> validate_answer;
-	tool_execution -.-> finalize;
-	tool_execution -.-> generate_answer;
-	tool_execution -.-> tool_selection;
-	tool_selection -.-> finalize;
-	tool_selection -.-> generate_answer;
-	tool_selection -.-> human_approval;
-	tool_selection -.-> tool_execution;
-	validate_answer -.-> finalize;
-	validate_answer -.-> improve_answer;
-	finalize --> __end__;
-	tool_selection -.-> tool_selection;
-	classDef default fill:#f2f0ff,line-height:1.2
-	classDef first fill-opacity:0
-	classDef last fill:#bfb6fc
-```
-
-Пунктир — условные переходы. Циклы: `tool_selection → tool_execution → tool_selection` (самокоррекция SQL) и `validate_answer → improve_answer → validate_answer` (улучшение ответа). Точки завершения: `finalize → __end__`. Актуальная схема: `uv run querypilot graph` (копия в [docs/graph.md](docs/graph.md)).
-
-## Инструменты
-
-| Инструмент | Файл | Описание |
-|---|---|---|
-| Schema Inspector | [schema_inspector.py](src/querypilot/tools/schema_inspector.py) | `CREATE`-выражения таблиц, число строк, значения enum-подобных колонок, ключи |
-| Query Validator | [query_validator.py](src/querypilot/tools/query_validator.py) | статический анализ SQL через `sqlglot`: допустимо ли, меняет ли данные |
-| SQL Linter | [sql_linter.py](src/querypilot/tools/sql_linter.py) | смысловая проверка `SELECT` (JOIN, GROUP BY, значения фильтров) |
-| SQL Executor | [sql_executor.py](src/querypilot/tools/sql_executor.py) | выполнение запроса; read-only соединение, пока нет подтверждения |
-
-Проверка ответа ([answer_checker.py](src/querypilot/services/answer_checker.py)) и результата ([result_checker.py](src/querypilot/services/result_checker.py)) — собственная бизнес-логика без LLM.
-
-## Структура проекта
-
-```
-src/querypilot/
-  api/            FastAPI: приложение и схемы Pydantic
-  services/       AgentService, проверки ответа и результата, определение языка
-  repositories/   история запусков в SQLite
-  tools/          Schema Inspector, Query Validator, SQL Executor
-  nodes.py        nodes графа
-  routers.py      условные переходы
-  graph.py        сборка StateGraph
-  state.py        AgentState
-  llm.py          Ollama, llama.cpp, FakeLLM для тестов
-  config.py       настройки
-  bootstrap.py    сборка боевого стека
-Dockerfile, compose.yaml, compose.gpu.yaml
-tests/
-  unit/           tools, роутеры, проверки, репозиторий, LLM-адаптеры
-  system/         весь граф и HTTP API
+  S([start]) --> A[analyze_request]
+  A -.нужны данные.-> T[tool_selection]
+  A -.без данных.-> G[generate_answer]
+  T -.SQL ok.-> E[tool_execution]
+  T -.запись.-> H[human_approval]
+  T -.отклонён линтером.-> T
+  H -.approve.-> E
+  H -.reject.-> F[finalize]
+  E -.ошибка или схема.-> T
+  E -.результат.-> G
+  G --> V[validate_answer]
+  V -.замечание.-> I[improve_answer]
+  I --> V
+  V -.ok.-> F
+  F --> X([end])
 ```
 
 ## Тесты
 
 ```bash
-uv run pytest
+uv run pytest        # 116 тестов, Ollama не нужен: FakeLLM отдаёт заготовленные ответы
 ```
-
-Реальная LLM и Ollama не нужны: тесты используют `FakeLLM`, который отдаёт заранее заданные ответы. Системные тесты ([test_workflow.py](tests/system/test_workflow.py), [test_api.py](tests/system/test_api.py)) гоняют настоящий граф и настоящую SQLite:
-
-- полный happy path с проверкой последовательности nodes;
-- самокоррекция SQL, отклонение опасного SQL валидатором, «тихо неверный» результат;
-- цикл улучшения ответа и остановка по лимиту итераций (для обоих циклов);
-- пауза на подтверждение, approve, reject, повторное решение (`409`);
-- истечение подтверждения по таймауту ([test_approval_timeout.py](tests/system/test_approval_timeout.py)), в том числе `approve` после истечения;
-- ошибка инструмента и ошибка LLM → контролируемый статус `failed`;
-- некорректное состояние графа ([test_invalid_state.py](tests/system/test_invalid_state.py)): node без `tool_call`, неизвестный инструмент, запуск без вопроса;
-- пауза переживает «перезапуск сервера» (новый граф и сервис на тех же SQLite-файлах).
-
-## Ограничения
-
-- Линтер ловит структурные ошибки, но не знает намерения пользователя: если вопрос двусмысленный («5 клиентов с наибольшим числом заказов и сколько из них оплачено»), модель может выбрать допустимое, но другое толкование. Фильтр по осмысленному, но не тому значению (`status = 'pending'` вместо `'paid'`) тоже пройдёт. Закрыть это может только проверка вторым LLM-судьёй; на 7B-модели она часто ошибалась бы и замедляла каждый запрос, поэтому не включена.
-- Линтер осторожен: он молчит, если не уверен, потому что каждое замечание стоит лишнего вызова модели.
-- Качество зависит от модели: 7B иногда усложняет запросы, теряет подписи в ответе (числа без названий месяцев) и переходит на китайский язык (для этого есть защита).
-- Если запрос не удалось построить за лимит итераций, ответ формируется без LLM: «Не удалось построить надёжный запрос» и последняя причина.
-- Нет авторизации и многопользовательности; сервис рассчитан на локальный запуск.
-- Запросы к API синхронные: ответ приходит после завершения агента.
+`tests/unit` — tools, линтер, роутеры, проверки, репозиторий. `tests/system` — весь граф и API: happy path, оба цикла и лимит итераций, approve / reject / таймаут, ошибки инструмента и LLM, некорректное состояние графа, перезапуск с паузой.
