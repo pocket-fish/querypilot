@@ -1,0 +1,7 @@
+# Optional NVIDIA GPU for Ollama. Needs the NVIDIA Container Toolkit with a CDI spec
+# (`nvidia-ctk cdi generate`). Use:
+#   podman compose -f compose.yaml -f compose.gpu.yaml up --build
+services:
+  ollama:
+    devices:
+      - nvidia.com/gpu=all

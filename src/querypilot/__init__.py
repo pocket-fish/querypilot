@@ -1,5 +1,6 @@
 import argparse
 import uuid
+from pathlib import Path
 
 from langgraph.types import Command
 
@@ -33,9 +34,11 @@ def _ask(question: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="querypilot")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("seed", help="create the demo database")
+    seed = sub.add_parser("seed", help="create the demo database")
+    seed.add_argument("--if-missing", action="store_true", help="do nothing if it already exists")
     sub.add_parser("graph", help="print the graph as a Mermaid diagram")
     serve = sub.add_parser("serve", help="start the HTTP API")
+    serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     ask = sub.add_parser("ask", help="ask a question in natural language")
     ask.add_argument("question")
@@ -44,12 +47,15 @@ def main() -> None:
     settings = get_settings()
     setup_logging(settings.log_level)
     if args.command == "seed":
-        create_demo_db(settings.data_db_path)
-        print(f"Demo database created at {settings.data_db_path}")
+        if args.if_missing and Path(settings.data_db_path).exists():
+            print(f"Demo database already exists at {settings.data_db_path}")
+        else:
+            create_demo_db(settings.data_db_path)
+            print(f"Demo database created at {settings.data_db_path}")
     elif args.command == "serve":
         import uvicorn
 
-        uvicorn.run("querypilot.bootstrap:app", factory=True, port=args.port)
+        uvicorn.run("querypilot.bootstrap:app", factory=True, host=args.host, port=args.port)
     elif args.command == "graph":
         print(render_mermaid(Deps(llm=None, db_path=settings.data_db_path)))  # type: ignore[arg-type]
     else:

@@ -1,0 +1,40 @@
+# Run with:  podman compose up --build      (or: docker compose up --build)
+# First start downloads the model (~4.7 GB) into the `ollama` volume; later starts reuse it.
+services:
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  model-pull:
+    image: docker.io/ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${QUERYPILOT_OLLAMA_MODEL:-qwen2.5:7b}"]
+    restart: "no"
+
+  api:
+    build: .
+    depends_on:
+      model-pull:
+        condition: service_completed_successfully
+    environment:
+      QUERYPILOT_LLM_BACKEND: ollama
+      QUERYPILOT_OLLAMA_BASE_URL: http://ollama:11434
+      QUERYPILOT_OLLAMA_MODEL: ${QUERYPILOT_OLLAMA_MODEL:-qwen2.5:7b}
+    ports:
+      - "8000:8000"
+    volumes:
+      - data:/app/data
+
+volumes:
+  ollama:
+  data:

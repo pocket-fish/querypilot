@@ -20,7 +20,7 @@ AI-агент «SQL-аналитик» на **LangGraph**. Пользовате�
 
 Python 3.12, LangGraph, LangChain (`langchain-ollama`), Ollama / llama.cpp, FastAPI, Pydantic (+ pydantic-settings), sqlglot, SQLite, httpx, pytest, logging. Менеджер пакетов — [uv](https://docs.astral.sh/uv/).
 
-> Не реализовано: Docker/Compose, PostgreSQL (история и чекпоинты пока в SQLite).
+> Не реализовано: PostgreSQL (история и чекпоинты пока в SQLite).
 
 ## Установка
 
@@ -67,6 +67,22 @@ uv run querypilot seed                             # пересоздать де
 ```
 
 CLI при запросе на изменение данных сам спросит `Approve? [y/N]`.
+
+### Docker / Podman Compose
+
+Один запуск поднимает Ollama, скачивает модель и стартует API:
+
+```bash
+podman compose up --build      # или: docker compose up --build
+```
+
+- Сервисы: `ollama`, одноразовый `model-pull` (скачивает `qwen2.5:7b`, около 4,7 ГБ, в том `ollama`) и `api` на `http://127.0.0.1:8000`. Другая модель: `QUERYPILOT_OLLAMA_MODEL=qwen2.5:3b podman compose up`.
+- Демо-БД создаётся при первом старте; данные и история лежат в томе `data`.
+- GPU NVIDIA (необязательно): `podman compose -f compose.yaml -f compose.gpu.yaml up --build`. Нужен NVIDIA Container Toolkit с CDI-описанием (`nvidia-ctk cdi generate`); этот вариант не проверялся. Без GPU модель 7B работает на CPU заметно медленнее.
+- Если вместо Ollama в контейнере нужен `llama-server` на хосте, задайте в `compose.yaml` для `api` `QUERYPILOT_LLM_BACKEND=llamacpp` и `QUERYPILOT_LLAMACPP_BASE_URL=http://host.docker.internal:8080`.
+- На Windows обращайтесь к API по `127.0.0.1`, а не `localhost` (он может указывать на IPv6).
+
+Проверено: `podman compose config` и сборка образа `api` с запуском контейнера. Полный `compose up` (с образом Ollama и скачиванием модели) не запускался.
 
 ### Настройки
 
@@ -211,6 +227,7 @@ src/querypilot/
   llm.py          Ollama, llama.cpp, FakeLLM для тестов
   config.py       настройки
   bootstrap.py    сборка боевого стека
+Dockerfile, compose.yaml, compose.gpu.yaml
 tests/
   unit/           tools, роутеры, проверки, репозиторий, LLM-адаптеры
   system/         весь граф и HTTP API
@@ -230,6 +247,7 @@ uv run pytest
 - пауза на подтверждение, approve, reject, повторное решение (`409`);
 - истечение подтверждения по таймауту ([test_approval_timeout.py](tests/system/test_approval_timeout.py)), в том числе `approve` после истечения;
 - ошибка инструмента и ошибка LLM → контролируемый статус `failed`;
+- некорректное состояние графа ([test_invalid_state.py](tests/system/test_invalid_state.py)): node без `tool_call`, неизвестный инструмент, запуск без вопроса;
 - пауза переживает «перезапуск сервера» (новый граф и сервис на тех же SQLite-файлах).
 
 ## Ограничения
