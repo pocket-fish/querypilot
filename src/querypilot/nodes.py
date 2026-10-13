@@ -12,6 +12,7 @@ from langgraph.types import interrupt
 
 from querypilot.llm import LLM, LoggedLLM
 from querypilot.services.answer_checker import check_answer
+from querypilot.services.result_checker import find_null_columns
 from querypilot.state import AgentState
 from querypilot.tools.errors import ToolError
 from querypilot.tools.query_validator import validate_sql
@@ -115,7 +116,11 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
             )
         reply = llm.invoke(
             "You are a SQLite expert. Write ONE SQL statement that answers the question. "
-            "Reply with the SQL only.\n\n"
+            "Reply with the SQL only.\n"
+            "Rules: use only tables and columns from the schema; prefer the simplest query "
+            "that works and avoid date functions unless the question needs them. If a business "
+            "metric is not defined, use a simple standard definition (for example LTV = total "
+            "amount of paid orders per customer). Revenue means orders with status 'paid'.\n\n"
             f"Schema:\n{state['schema_text']}\n\nQuestion: {state['user_question']}{retry_hint}"
         )
         sql = _clean_sql(reply)
@@ -187,6 +192,19 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
                 "tools_used": [name],
             }
         logger.info("tool=%s ok rows=%s", name, result["row_count"])
+        null_columns = find_null_columns(result)
+        if null_columns:
+            names = ", ".join(null_columns)
+            logger.warning("suspicious result: all-NULL columns: %s", names)
+            return {
+                "tool_result": result,
+                "error": (
+                    f"Column(s) {names} are NULL in every row, so the expression is probably "
+                    "wrong. Rewrite the query in a simpler way."
+                ),
+                "iterations": state.get("iterations", 0) + 1,
+                "tools_used": [name],
+            }
         return {"tool_result": result, "error": None, "tools_used": [name]}
 
     @_guarded("generate_answer")
@@ -195,6 +213,8 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
             context = f"The data query failed: {state['error']}. Explain this honestly."
         elif state.get("tool_result"):
             context = f"SQL: {state.get('sql')}\nResult: {json.dumps(state['tool_result'])}"
+            if state.get("error"):
+                context += f"\nWarning: {state['error']} Mention that the result may be unreliable."
         else:
             context = (
                 "No database lookup was needed. If asked what you can do: you answer questions "

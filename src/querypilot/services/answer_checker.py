@@ -34,9 +34,17 @@ def check_answer(
         if not any(math.isclose(n, a, abs_tol=0.01) or round(a) == n for a in allowed)
     ]
     if unknown:
-        shown = ", ".join(f"{n:g}" for n in dict.fromkeys(unknown))
+        hints = ", ".join(
+            f"{_fmt(n)} (closest value in the result: {_fmt(min(allowed, key=lambda a: abs(a - n)))})"
+            for n in dict.fromkeys(unknown)
+        )
         return (
-            f"These numbers are not in the query result: {shown}. "
-            "Use only numbers from the result, written without thousands separators."
+            f"These numbers are not in the query result: {hints}. "
+            "Copy numbers exactly as they appear in the result, without rounding, "
+            "truncating or thousands separators."
         )
     return None
+
+
+def _fmt(value: float) -> str:
+    return f"{round(value, 2):.2f}".rstrip("0").rstrip(".")

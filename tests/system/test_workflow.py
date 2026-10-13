@@ -48,6 +48,27 @@ def test_failed_sql_is_self_corrected(make_harness):
     assert "no such table" in h.llm.prompts[2]  # error was fed back to the model
 
 
+def test_silently_wrong_all_null_result_triggers_rewrite(make_harness):
+    bad = "SELECT id, NULL AS ltv FROM customers"
+    good = "SELECT COUNT(*) FROM customers"
+    h = make_harness([NEEDS_DATA, bad, good, "There are 30 customers."])
+    result = h.run("Compute LTV")
+
+    assert result["status"] == "completed"
+    assert result["iterations"] == 1
+    assert result["sql"] == good
+    assert "NULL in every row" in h.llm.prompts[2]  # the warning reached the model
+
+
+def test_all_null_result_that_never_gets_fixed_ends_as_max_iterations(make_harness):
+    bad = "SELECT NULL AS ltv FROM customers"
+    h = make_harness([NEEDS_DATA, bad, bad, "LTV could not be computed."], max_iterations=2)
+    result = h.run("Compute LTV")
+
+    assert result["status"] == "max_iterations"
+    assert "unreliable" in h.llm.prompts[3]
+
+
 def test_dangerous_sql_is_rejected_by_validator_and_retried(make_harness):
     h = make_harness([NEEDS_DATA, "DROP TABLE orders", COUNT_SQL, "There are 30 customers."])
     result = h.run("How many customers?")

@@ -63,6 +63,12 @@ def test_checker_flags_invented_numbers():
     assert feedback and "99" in feedback
 
 
+def test_checker_names_the_closest_real_value_for_truncated_numbers():
+    result = {"rows": [[27, 1149.58]], "row_count": 1}
+    feedback = check_answer("Customer 27 has 1149", "LTV?", result)
+    assert "1149.58" in feedback
+
+
 def test_checker_allows_numbers_from_question():
     result = {"rows": [["a", 1]], "row_count": 1}
     assert check_answer("Top 5 requested, found a with 1", "Show top 5", result) is None
