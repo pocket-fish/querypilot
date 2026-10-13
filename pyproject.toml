@@ -7,7 +7,16 @@ authors = [
     { name = "SaBog", email = "tyzikniki@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.143.0",
+    "langchain-core>=1.6.10",
+    "langchain-ollama>=1.1.0",
+    "langgraph>=1.2.15",
+    "pydantic>=2.14.1",
+    "pydantic-settings>=2.15.0",
+    "sqlglot>=30.22.0",
+    "uvicorn[standard]>=0.54.0",
+]
 
 [project.scripts]
 querypilot = "querypilot:main"
@@ -15,3 +24,9 @@ querypilot = "querypilot:main"
 [build-system]
 requires = ["uv_build>=0.12.20,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
