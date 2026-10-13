@@ -38,7 +38,7 @@ def check_answer(
     unknown = [
         n
         for n in _numbers(answer)
-        if not any(math.isclose(n, a, abs_tol=0.01) or round(a) == n for a in allowed)
+        if not any(math.isclose(n, a, abs_tol=0.01) for a in allowed)
     ]
     if unknown:
         hints = ", ".join(

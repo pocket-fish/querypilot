@@ -63,6 +63,17 @@ def test_checker_flags_invented_numbers():
     assert feedback and "99" in feedback
 
 
+def test_checker_rejects_rounding_to_integers_but_accepts_exact_copy():
+    result = {"columns": ["aov"], "rows": [[277.03]], "row_count": 1}
+    assert check_answer("AOV: 277", "AOV?", result)
+    assert check_answer("AOV: 277.03", "AOV?", result) is None
+
+
+def test_checker_tolerates_float_noise_in_result():
+    result = {"columns": ["ltv"], "rows": [[503.10999999999996]], "row_count": 1}
+    assert check_answer("LTV: 503.11", "LTV?", result) is None
+
+
 def test_checker_flags_chinese_in_a_russian_question_even_without_rows():
     feedback = check_answer("AOV是277.03。", "посчитай AOV", None)
     assert feedback and "Russian" in feedback
