@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import interrupt
 
-from querypilot.llm import LLM
+from querypilot.llm import LLM, LoggedLLM
 from querypilot.services.answer_checker import check_answer
 from querypilot.state import AgentState
 from querypilot.tools.errors import ToolError
@@ -21,6 +21,14 @@ from querypilot.tools.sql_executor import execute_sql
 logger = logging.getLogger(__name__)
 
 NodeFn = Callable[[AgentState], dict[str, Any]]
+
+ANSWER_RULES = (
+    "You are a data analyst assistant. Answer the user's question in one or two complete "
+    "sentences, in the language of the question. Use only numbers that appear in the query "
+    "result, copied exactly and written without thousands separators; never merge or invent "
+    "numbers. For lists, put each item on its own line. For INSERT/UPDATE/DELETE, say how many "
+    "rows were affected (rows_affected).\n\n"
+)
 
 
 @dataclass
@@ -74,7 +82,7 @@ def _clean_sql(text: str) -> str:
 
 
 def build_nodes(deps: Deps) -> dict[str, NodeFn]:
-    llm = deps.llm
+    llm = LoggedLLM(deps.llm)
 
     @_guarded("analyze_request")
     def analyze_request(state: AgentState) -> dict[str, Any]:
@@ -188,12 +196,12 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
         elif state.get("tool_result"):
             context = f"SQL: {state.get('sql')}\nResult: {json.dumps(state['tool_result'])}"
         else:
-            context = "No data lookup was needed."
-        answer = llm.invoke(
-            "Answer the user's question concisely. Use only numbers from the result, "
-            "written without thousands separators.\n\n"
-            f"Question: {state['user_question']}\n{context}"
-        ).strip()
+            context = (
+                "No database lookup was needed. If asked what you can do: you answer questions "
+                "about customers and orders by writing SQL, and you can change data only after "
+                "the user approves. Do not state any numbers."
+            )
+        answer = llm.invoke(ANSWER_RULES + f"Question: {state['user_question']}\n{context}").strip()
         return {"final_answer": answer, "feedback": None}
 
     @_guarded("validate_answer")
@@ -209,7 +217,8 @@ def build_nodes(deps: Deps) -> dict[str, NodeFn]:
         iterations = state.get("iterations", 0) + 1
         logger.info("improving answer, iteration=%s", iterations)
         improved = llm.invoke(
-            "Rewrite the answer to fix the problem.\n\n"
+            ANSWER_RULES + "Rewrite the previous answer to fix the problem. "
+            "Reply with the corrected answer only, no preface.\n\n"
             f"Question: {state['user_question']}\n"
             f"Query result: {json.dumps(state.get('tool_result'))}\n"
             f"Previous answer: {state.get('final_answer')}\n"

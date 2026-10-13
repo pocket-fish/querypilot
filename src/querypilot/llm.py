@@ -59,6 +59,19 @@ def create_llm(settings: Settings) -> LLM:
     return OllamaLLM(settings.ollama_model, settings.ollama_base_url)
 
 
+class LoggedLLM:
+    """Decorator that logs every prompt/reply at DEBUG level."""
+
+    def __init__(self, inner: LLM) -> None:
+        self._inner = inner
+
+    def invoke(self, prompt: str) -> str:
+        logger.debug("llm prompt:\n%s", prompt)
+        reply = self._inner.invoke(prompt)
+        logger.debug("llm reply:\n%s", reply)
+        return reply
+
+
 class FakeLLM:
     """Scripted LLM for tests: returns queued responses in order."""
 
