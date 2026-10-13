@@ -23,23 +23,23 @@ GOOD_QUERIES = [
     "SELECT country, COUNT(*) AS n FROM customers GROUP BY country ORDER BY n DESC LIMIT 3",
     "SELECT country, COUNT(*) FROM customers GROUP BY 1 ORDER BY 2 DESC LIMIT 3",
     # name/country depend on the grouped primary key c.id
-    "SELECT c.id, c.name, c.country, SUM(o.amount) AS ltv FROM customers c "
-    "JOIN orders o ON c.id = o.customer_id WHERE o.status = 'paid' GROUP BY c.id",
-    "SELECT c.country, AVG(o.amount) FROM customers c JOIN orders o ON o.customer_id = c.id "
-    "GROUP BY c.country",
-    "SELECT substr(created_at, 1, 7) AS month, SUM(amount) FROM orders "
-    "GROUP BY substr(created_at, 1, 7)",
+    ("SELECT c.id, c.name, c.country, SUM(o.amount) AS ltv FROM customers c "
+    "JOIN orders o ON c.id = o.customer_id WHERE o.status = 'paid' GROUP BY c.id"),
+    ("SELECT c.country, AVG(o.amount) FROM customers c JOIN orders o ON o.customer_id = c.id "
+    "GROUP BY c.country"),
+    ("SELECT substr(created_at, 1, 7) AS month, SUM(amount) FROM orders "
+    "GROUP BY substr(created_at, 1, 7)"),
     # GROUP BY an alias of a select expression (the real query that was falsely rejected)
-    "SELECT strftime('%Y-%m', created_at) AS month, COUNT(*) AS n FROM orders "
-    "GROUP BY month ORDER BY month",
-    "SELECT country, COUNT(*) FROM customers WHERE country IN ('Germany', 'France') "
-    "GROUP BY country",
+    ("SELECT strftime('%Y-%m', created_at) AS month, COUNT(*) AS n FROM orders "
+    "GROUP BY month ORDER BY month"),
+    ("SELECT country, COUNT(*) FROM customers WHERE country IN ('Germany', 'France') "
+    "GROUP BY country"),
     "SELECT * FROM orders WHERE status <> 'cancelled' ORDER BY amount DESC LIMIT 5",
     "SELECT * FROM orders WHERE amount IS NOT NULL ORDER BY amount DESC LIMIT 5",
-    "SELECT c.name FROM customers c LEFT JOIN orders o ON o.customer_id = c.id "
-    "WHERE o.id IS NULL",
-    "SELECT name FROM customers WHERE id IN (SELECT customer_id FROM orders GROUP BY customer_id "
-    "HAVING SUM(amount) > 1000)",
+    ("SELECT c.name FROM customers c LEFT JOIN orders o ON o.customer_id = c.id "
+    "WHERE o.id IS NULL"),
+    ("SELECT name FROM customers WHERE id IN (SELECT customer_id FROM orders GROUP BY customer_id "
+    "HAVING SUM(amount) > 1000)"),
     "SELECT customer_id, SUM(amount) OVER (PARTITION BY customer_id) FROM orders",
 ]
 

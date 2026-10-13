@@ -5,7 +5,12 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from querypilot.api.schemas import HistoryResponse, RunRequest, RunResponse, StatusResponse
+from querypilot.api.schemas import (
+    HistoryResponse,
+    RunRequest,
+    RunResponse,
+    StatusResponse,
+)
 from querypilot.services.agent_service import (
     AgentService,
     InvalidRunStateError,

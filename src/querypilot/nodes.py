@@ -18,8 +18,8 @@ from querypilot.state import AgentState, InvalidStateError, ToolCall
 from querypilot.tools.errors import ToolError
 from querypilot.tools.query_validator import validate_sql
 from querypilot.tools.schema_inspector import inspect_schema, read_schema_info
-from querypilot.tools.sql_linter import lint_sql
 from querypilot.tools.sql_executor import execute_sql
+from querypilot.tools.sql_linter import lint_sql
 
 logger = logging.getLogger(__name__)
 
