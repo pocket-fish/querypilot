@@ -8,6 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
-data/*.db
+data/*.db*
 .env
 .pytest_cache/

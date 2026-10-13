@@ -37,6 +37,8 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("seed", help="create the demo database")
     sub.add_parser("graph", help="print the graph as a Mermaid diagram")
+    serve = sub.add_parser("serve", help="start the HTTP API")
+    serve.add_argument("--port", type=int, default=8000)
     ask = sub.add_parser("ask", help="ask a question in natural language")
     ask.add_argument("question")
     args = parser.parse_args()
@@ -46,6 +48,10 @@ def main() -> None:
     if args.command == "seed":
         create_demo_db(settings.data_db_path)
         print(f"Demo database created at {settings.data_db_path}")
+    elif args.command == "serve":
+        import uvicorn
+
+        uvicorn.run("querypilot.bootstrap:app", factory=True, port=args.port)
     elif args.command == "graph":
         print(render_mermaid(Deps(llm=None, db_path=settings.data_db_path)))  # type: ignore[arg-type]
     else:

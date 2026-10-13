@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     max_iterations: int = 3
     data_db_path: str = "data/demo.db"
+    history_db_path: str = "data/history.db"
+    checkpoint_db_path: str = "data/checkpoints.db"
     max_rows: int = 100
     log_level: str = "INFO"
 

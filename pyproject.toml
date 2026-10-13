@@ -12,6 +12,7 @@ dependencies = [
     "langchain-core>=1.6.10",
     "langchain-ollama>=1.1.0",
     "langgraph>=1.2.15",
+    "langgraph-checkpoint-sqlite>=3.1.2",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.15.0",
     "sqlglot>=30.22.0",
